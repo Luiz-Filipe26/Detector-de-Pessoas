@@ -19,8 +19,8 @@ def update_frame(new_frame):
 
 if __name__ == "__main__":
     while True:
-        #source = "/home/luiz/Downloads/people_walking.mp4"
-        source = "/home/luiz/Downloads/man_walking.mp4"
+        source = "/home/luiz/Downloads/people_walking.mp4"
+        #source = "/home/luiz/Downloads/man_walking.mp4"
         #source = input("Digite o caminho do arquivo de vídeo ou URL da câmera: ")
         if is_valid_video_file(source):
             print(f"Arquivo de vídeo válido: {source}")

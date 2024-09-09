@@ -4,11 +4,83 @@ import numpy as np
 # Variável global para o background_subtractor
 background_subtractor = None
 
+# Constantes para classificação usando aspect ratio
+ADULT_ASPECT_RATIO_MIN = 20 / 200  # Largura 20, Altura 200
+ADULT_ASPECT_RATIO_MAX = 20 / 100  # Largura 20, Altura 100
+
+CHILD_ASPECT_RATIO_MIN = 20 / 100  # Largura 20, Altura 100
+CHILD_ASPECT_RATIO_MAX = 20 / 50   # Largura 20, Altura 50
+
+ANIMAL_ASPECT_RATIO_MIN = 20 / 50  # Largura 20, Altura 50
+ANIMAL_ASPECT_RATIO_MAX = 50 / 20   # Largura 50, Altura 20
 
 def initialize():
     global background_subtractor
     background_subtractor = cv2.createBackgroundSubtractorMOG2()
 
+def find_split_point(contour):
+    """
+    Determine the Y coordinate where the contour should be split based on significant deviation
+    from the average width of neighboring regions.
+    Returns 0 if no split is needed, or the Y coordinate to split.
+    """
+    points = contour[:, 0, :]
+    y_coords = points[:, 1]
+
+    # Ordenar os y_coords e calcular as larguras médias das vizinhanças
+    sorted_y_coords = np.sort(np.unique(y_coords))
+    widths = [sorted_y_coords[i + 1] - sorted_y_coords[i] for i in range(len(sorted_y_coords) - 1)]
+
+    if len(widths) == 0:
+        return 0
+
+    # Ordenar larguras para análise
+    sorted_widths = np.sort(widths)
+    lower_20_percent_index = max(1, int(len(sorted_widths) * 0.2))
+    lower_20_percent_widths = sorted_widths[:lower_20_percent_index]
+
+    # Calcular a largura média dos menores 20%
+    avg_lower_20_percent_width = np.mean(lower_20_percent_widths)
+
+    # Encontrar pontos onde a largura é significativamente maior do que a média dos menores 20%
+    significant_deviation_threshold = avg_lower_20_percent_width * 1.5  # Ajuste conforme necessário
+    potential_splits = [sorted_y_coords[i] for i in range(len(widths)) if widths[i] > significant_deviation_threshold]
+
+    if len(potential_splits) > 0:
+        # Retorna o ponto médio dos pontos candidatos
+        return int(np.mean(potential_splits))
+
+    return 0
+
+def cut_contour_at_y(contour, split_y):
+    """
+    Cut the contour into two parts at the given Y coordinate.
+    """
+    points = contour[:, 0, :]
+
+    # Dividimos os pontos em dois contornos com base no split_y
+    above_split = points[points[:, 1] <= split_y]
+    below_split = points[points[:, 1] > split_y]
+
+    if len(above_split) > 0 and len(below_split) > 0:
+        return [above_split.reshape(-1, 1, 2), below_split.reshape(-1, 1, 2)]
+    return [contour]
+
+def classify_contour(contour):
+    """
+    Classify the contour as 'adult', 'child', or 'animal' based on its aspect ratio.
+    """
+    x, y, w, h = cv2.boundingRect(contour)
+    aspect_ratio = w / h
+
+    if ADULT_ASPECT_RATIO_MIN <= aspect_ratio <= ADULT_ASPECT_RATIO_MAX:
+        return 'adulto'
+    elif CHILD_ASPECT_RATIO_MIN <= aspect_ratio <= CHILD_ASPECT_RATIO_MAX:
+        return 'criança'
+    elif ANIMAL_ASPECT_RATIO_MIN <= aspect_ratio <= ANIMAL_ASPECT_RATIO_MAX:
+        return 'animal'
+    else:
+        return 'desconhecido'
 
 def process_contours(contours):
     # Lista que vai armazenar os novos contornos processados com seus respectivos nomes (rótulos)
@@ -16,13 +88,21 @@ def process_contours(contours):
 
     for contour in contours:
         # Condição dummy: se a área do contorno for maior que 500, é considerado válido.
-        # No futuro, você pode expandir essa lógica para fazer ajustes ou remover contornos.
         if cv2.contourArea(contour) > 500:
-            label = "adulto"  # Placeholder - no futuro, adicione lógica real para definir "adulto", "criança", ou "animal"
-            processed_contours.append((contour, label))
+            # Determina onde deve ser feito o split
+            split_y = find_split_point(contour)
+
+            # Classificar o contorno
+            label = classify_contour(contour)
+
+            if split_y > 0:
+                split_contours = cut_contour_at_y(contour, split_y)
+                for split_contour in split_contours:
+                    processed_contours.append((split_contour, label))  # Adiciona o rótulo classificado
+            else:
+                processed_contours.append((contour, label))  # Adiciona o rótulo classificado
 
     return processed_contours
-
 
 def process_frame(current_frame):
     global background_subtractor
